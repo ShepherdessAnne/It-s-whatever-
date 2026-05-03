@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import subprocess
+import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -51,6 +52,29 @@ def remote_url(remote_name: str) -> str:
 
 def github_token() -> str | None:
     return os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+
+
+def to_https_github_url(url: str) -> str:
+    if url.startswith("https://github.com/"):
+        return url
+
+    ssh_like = re.match(r"^git@github\.com:(?P<path>.+)$", url)
+    if ssh_like:
+        return f"https://github.com/{ssh_like.group('path')}"
+
+    ssh_scheme = re.match(r"^ssh://git@github\.com/(?P<path>.+)$", url)
+    if ssh_scheme:
+        return f"https://github.com/{ssh_scheme.group('path')}"
+
+    return url
+
+
+def normalize_remote_for_push(remote_name: str) -> str:
+    url = remote_url(remote_name)
+    normalized = to_https_github_url(url)
+    if normalized != url:
+        run(["git", "remote", "set-url", remote_name, normalized])
+    return normalized
 
 
 def discovery_headers() -> dict[str, str]:
@@ -100,7 +124,7 @@ def resolve_remote_url(explicit_url: str | None) -> str | None:
 def push_with_optional_token(remote_name: str, branch: str) -> subprocess.CompletedProcess[str]:
     cmd = ["git", "push", "-u", remote_name, branch]
     token = github_token()
-    url = remote_url(remote_name)
+    url = normalize_remote_for_push(remote_name)
     if token and url.startswith("https://github.com/"):
         cmd = [
             "git",

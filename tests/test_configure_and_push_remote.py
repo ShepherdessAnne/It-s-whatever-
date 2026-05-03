@@ -9,6 +9,7 @@ from scripts.configure_and_push_remote import (
     discovery_headers,
     push_with_optional_token,
     resolve_remote_url,
+    to_https_github_url,
 )
 
 
@@ -70,6 +71,17 @@ class ConfigureAndPushRemoteTests(unittest.TestCase):
             else:
                 os.environ["GITHUB_TOKEN"] = original_token
 
+
+    def test_to_https_github_url_converts_ssh_forms(self) -> None:
+        self.assertEqual(
+            to_https_github_url("git@github.com:example/It-s-whatever-.git"),
+            "https://github.com/example/It-s-whatever-.git",
+        )
+        self.assertEqual(
+            to_https_github_url("ssh://git@github.com/example/It-s-whatever-.git"),
+            "https://github.com/example/It-s-whatever-.git",
+        )
+
     @patch("scripts.configure_and_push_remote.run")
     @patch("scripts.configure_and_push_remote.remote_url")
     def test_push_with_optional_token_uses_extraheader_for_github_https(
@@ -84,6 +96,28 @@ class ConfigureAndPushRemoteTests(unittest.TestCase):
             push_with_optional_token("origin", "work")
             cmd = mock_run.call_args.args[0]
             self.assertIn("http.https://github.com/.extraheader=AUTHORIZATION: bearer tok123", cmd)
+        finally:
+            if original_token is None:
+                os.environ.pop("GH_TOKEN", None)
+            else:
+                os.environ["GH_TOKEN"] = original_token
+
+    @patch("scripts.configure_and_push_remote.run")
+    @patch("scripts.configure_and_push_remote.remote_url")
+    def test_push_with_optional_token_normalizes_ssh_remote(
+        self, mock_remote_url: MagicMock, mock_run: MagicMock
+    ) -> None:
+        mock_remote_url.return_value = "git@github.com:example/It-s-whatever-.git"
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+        original_token = os.environ.get("GH_TOKEN")
+        os.environ["GH_TOKEN"] = "tok123"
+        try:
+            push_with_optional_token("origin", "work")
+            first_cmd = mock_run.call_args_list[0].args[0]
+            second_cmd = mock_run.call_args_list[-1].args[0]
+            self.assertEqual(first_cmd, ["git", "remote", "set-url", "origin", "https://github.com/example/It-s-whatever-.git"])
+            self.assertIn("http.https://github.com/.extraheader=AUTHORIZATION: bearer tok123", second_cmd)
         finally:
             if original_token is None:
                 os.environ.pop("GH_TOKEN", None)
