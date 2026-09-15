@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paired-video-pipeline"
+version = "0.1.0"
+description = "Paired project-file/video training pipeline"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi==0.116.1",
+  "uvicorn==0.35.0",
+  "python-multipart==0.0.20",
+  "torch>=2.4",
+  "av>=12.3",
+]
+
+[tool.setuptools]
+packages = ["volunteer_portal", "pipeline", "scripts"]
