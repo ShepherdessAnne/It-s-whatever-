@@ -5,6 +5,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY volunteer_portal ./volunteer_portal
 COPY pipeline ./pipeline
+COPY scripts ./scripts
 COPY README.md ./
 COPY dataset ./dataset
 COPY hybrid_model ./hybrid_model

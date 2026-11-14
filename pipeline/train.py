@@ -20,12 +20,14 @@ def project_bytes_as_tokens(paths: tuple[Path, ...], max_tokens: int) -> Tensor:
     """Keep each source file raw, separating files with token 257; zero pads."""
     values: list[int] = []
     for path in paths:
-        values.extend(byte + 1 for byte in path.read_bytes())
-        values.append(257)
-        if len(values) >= max_tokens:
+        remaining = max_tokens - len(values)
+        if remaining <= 0:
             break
+        with path.open("rb") as handle:
+            values.extend(byte + 1 for byte in handle.read(remaining))
+        if len(values) < max_tokens:
+            values.append(257)
     return torch.tensor((values[:max_tokens] + [0] * max_tokens)[:max_tokens], dtype=torch.long)
-
 
 def decode_video(path: Path, frame_count: int, size: int) -> Tensor:
     decoded: list[Tensor] = []

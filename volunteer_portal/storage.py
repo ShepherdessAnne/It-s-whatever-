@@ -2,19 +2,46 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import tempfile
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+try:
+    import fcntl
+except ImportError:  # Windows: thread-level locking still applies.
+    fcntl = None
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = BASE_DIR / "uploads"
 RECORDS_FILE = DATA_DIR / "records.jsonl"
+_RECORDS_LOCK = threading.RLock()
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@contextmanager
+def _locked_records():
+    """Serialize manifest mutations across threads and POSIX worker processes."""
+    with _RECORDS_LOCK:
+        RECORDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if fcntl is None:
+            yield
+        else:
+            lock_path = RECORDS_FILE.with_name(RECORDS_FILE.name + ".lock")
+            with lock_path.open("a+b") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def now_iso() -> str:
@@ -41,11 +68,12 @@ def save_upload(src_path: Path, dst_path: Path) -> dict[str, Any]:
 
 
 def append_record(record: dict[str, Any]) -> None:
-    with RECORDS_FILE.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    with _locked_records():
+        with RECORDS_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def load_records() -> list[dict[str, Any]]:
+def _load_records_unlocked() -> list[dict[str, Any]]:
     if not RECORDS_FILE.exists():
         return []
     rows: list[dict[str, Any]] = []
@@ -56,6 +84,10 @@ def load_records() -> list[dict[str, Any]]:
                 rows.append(json.loads(line))
     return rows
 
+
+def load_records() -> list[dict[str, Any]]:
+    with _locked_records():
+        return _load_records_unlocked()
 
 def create_file_video_record(
     project_file_paths: list[Path],
@@ -114,7 +146,6 @@ def add_feedback(
     author: str | None,
     labels: list[str] | None,
 ) -> dict[str, Any]:
-    records = load_records()
     new_feedback = {
         "feedback_id": str(uuid4()),
         "author": author or "",
@@ -123,18 +154,24 @@ def add_feedback(
         "created_at": now_iso(),
     }
 
-    updated = False
-    for record in records:
-        if record.get("example_id") == example_id:
-            record.setdefault("feedback", []).append(new_feedback)
-            updated = True
-            break
-
-    if not updated:
-        raise ValueError(f"example_id not found: {example_id}")
-
-    with RECORDS_FILE.open("w", encoding="utf-8") as handle:
+    with _locked_records():
+        records = _load_records_unlocked()
         for record in records:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            if record.get("example_id") == example_id:
+                record.setdefault("feedback", []).append(new_feedback)
+                break
+        else:
+            raise ValueError(f"example_id not found: {example_id}")
+
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=RECORDS_FILE.parent, delete=False) as handle:
+                temp_path = Path(handle.name)
+                for record in records:
+                    handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            os.replace(temp_path, RECORDS_FILE)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
 
     return new_feedback

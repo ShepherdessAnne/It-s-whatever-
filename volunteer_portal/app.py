@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -69,10 +70,16 @@ def home() -> str:
 
 def _persist_temp_upload(upload: UploadFile) -> Path:
     suffix = Path(upload.filename or "").suffix
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = upload.file.read()
-        tmp.write(content)
-        return Path(tmp.name)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            temp_path = Path(tmp.name)
+            shutil.copyfileobj(upload.file, tmp, length=1024 * 1024)
+        return temp_path
+    except BaseException:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
 
 
 @app.post("/submit/file-video")
@@ -84,11 +91,19 @@ def submit_file_video(
     if not project_files:
         raise HTTPException(status_code=400, detail="At least one project file is required")
 
-    temp_project_paths = [_persist_temp_upload(item) for item in project_files]
-    temp_video_path = _persist_temp_upload(video)
-
-    record = create_file_video_record(temp_project_paths, temp_video_path, display_name)
-    return JSONResponse(record)
+    temp_project_paths: list[Path] = []
+    temp_video_path = None
+    try:
+        for item in project_files:
+            temp_project_paths.append(_persist_temp_upload(item))
+        temp_video_path = _persist_temp_upload(video)
+        record = create_file_video_record(temp_project_paths, temp_video_path, display_name)
+        return JSONResponse(record)
+    finally:
+        for path in temp_project_paths:
+            path.unlink(missing_ok=True)
+        if temp_video_path is not None:
+            temp_video_path.unlink(missing_ok=True)
 
 
 @app.post("/submit/prompt-video")
@@ -98,8 +113,11 @@ def submit_prompt_video(
     video: UploadFile = File(...),
 ) -> JSONResponse:
     temp_video_path = _persist_temp_upload(video)
-    record = create_prompt_video_record(prompt=prompt, video_path=temp_video_path, display_name=display_name)
-    return JSONResponse(record)
+    try:
+        record = create_prompt_video_record(prompt=prompt, video_path=temp_video_path, display_name=display_name)
+        return JSONResponse(record)
+    finally:
+        temp_video_path.unlink(missing_ok=True)
 
 
 @app.post("/feedback")
