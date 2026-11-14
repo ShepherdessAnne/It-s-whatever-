@@ -1,0 +1,27 @@
+{
+  "components": [
+    {
+      "name": "versecrafter",
+      "source_type": "git",
+      "repo": "https://github.com/TencentARC/VerseCrafter.git",
+      "ref": "${VERSECRAFTER_REF:-main}",
+      "build_cmd": "${VERSECRAFTER_BUILD_CMD:-python -m py_compile api_server.py model_server.py}"
+    },
+    {
+      "name": "wan_latest",
+      "source_type": "api",
+      "provider": "alibaba_wan_api",
+      "model_id": "wan@2.7",
+      "fallback_repo": "https://github.com/Wan-Video/Wan2.2.git",
+      "ref": "${WAN_REF:-main}",
+      "build_cmd": "${WAN_BUILD_CMD:-python -m pip wheel . -w dist --no-deps}"
+    },
+    {
+      "name": "sora2_clone",
+      "source_type": "git",
+      "repo": "https://github.com/hpcaitech/Open-Sora.git",
+      "ref": "${SORA2_CLONE_REF:-main}",
+      "build_cmd": "${SORA2_CLONE_BUILD_CMD:-python -m py_compile opensora/__init__.py}"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+project: unified_scene_video_stack
+objective: paired_file_video_learning
+
+components:
+  versecrafter:
+    role: base_video_backbone
+    trainable: true
+    notes: "Primary temporal/video backbone"
+
+  wan_latest:
+    role: upgraded_diffusion_or_conditioning_blocks
+    trainable: true
+    notes: "Use latest WAN modules/checkpoints as available"
+
+  sora2_clone_module:
+    role: auxiliary_temporal_reasoning_and_alignment
+    trainable: true
+    notes: "Paper-clone module integrated as optional branch"
+
+fusion:
+  strategy: gated_multi_branch
+  shared_condition_encoder: file_content_encoder
+  router_input:
+    - file_bytes
+    - file_text
+    - lightweight_meta
+
+training:
+  input:
+    - raw_project_files
+    - target_video
+  output:
+    - reconstructed_or_predicted_video
+  losses:
+    - video_reconstruction
+    - temporal_consistency
+    - optional_semantic_alignment
+
+pipeline:
+  ingestion_mode: paired_only
+  future_extensions:
+    - video_prompt_pairs
+    - volunteer_feedback_weighting
